@@ -10,6 +10,7 @@ from time import time
 
 import six
 from flask import Flask, make_response, jsonify, render_template, request
+from flask_basicauth import BasicAuth
 from gevent import pywsgi
 
 from locust import __version__ as version
@@ -43,7 +44,7 @@ def index():
         host = runners.locust_runner.locust_classes[0].host
     else:
         host = None
-    
+
     return render_template("index.html",
         state=runners.locust_runner.state,
         is_distributed=is_distributed,
@@ -70,7 +71,7 @@ def stop():
 def reset_stats():
     runners.locust_runner.stats.reset_all()
     return "ok"
-    
+
 @app.route("/stats/requests/csv")
 def request_stats_csv():
     response = make_response(requests_csv())
@@ -93,7 +94,7 @@ def distribution_stats_csv():
 @memoize(timeout=DEFAULT_CACHE_TIME, dynamic_timeout=True)
 def request_stats():
     stats = []
-    
+
     for s in chain(sort_stats(runners.locust_runner.request_stats), [runners.locust_runner.stats.total]):
         stats.append({
             "method": s.method,
@@ -119,7 +120,7 @@ def request_stats():
         report["fail_ratio"] = runners.locust_runner.stats.total.fail_ratio
         report["current_response_time_percentile_95"] = runners.locust_runner.stats.total.get_current_response_time_percentile(0.95)
         report["current_response_time_percentile_50"] = runners.locust_runner.stats.total.get_current_response_time_percentile(0.5)
-    
+
     is_distributed = isinstance(runners.locust_runner, MasterLocustRunner)
     if is_distributed:
         slaves = []
@@ -127,7 +128,7 @@ def request_stats():
             slaves.append({"id":slave.id, "state":slave.state, "user_count": slave.user_count})
 
         report["slaves"] = slaves
-    
+
     report["state"] = runners.locust_runner.state
     report["user_count"] = runners.locust_runner.user_count
 
@@ -154,7 +155,7 @@ def exceptions_csv():
     for exc in six.itervalues(runners.locust_runner.exceptions):
         nodes = ", ".join(exc["nodes"])
         writer.writerow([exc["count"], exc["msg"], exc["traceback"], nodes])
-    
+
     data.seek(0)
     response = make_response(data.read())
     file_name = "exceptions_{0}.csv".format(time())
@@ -164,5 +165,12 @@ def exceptions_csv():
     return response
 
 def start(locust, options):
+    if options.web_auth is not None:
+       cred = options.web_auth.split(':')
+       if len(cred)>1:
+           app.config['BASIC_AUTH_USERNAME'] = cred[0]
+           app.config['BASIC_AUTH_PASSWORD'] = cred[1]
+           app.config['FORCE_BASIC_AUTH'] = True
+
     pywsgi.WSGIServer((options.web_host, options.port),
                       app, log=None).serve_forever()
